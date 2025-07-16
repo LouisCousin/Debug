@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import signal
 import pickle
 from threading import Lock, Event, Semaphore
+import threading
 import sys
 
 try:
@@ -398,8 +399,13 @@ def signal_handler(signum, frame):
         st.session_state.processor.shutdown()
     sys.exit(0)
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+# Register signal handlers only in the main thread to avoid ValueError in
+# environments like Streamlit that execute code in a separate thread.
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+else:
+    logging.warning("Signal handlers not registered because not running in the main thread")
 
 def main():
     init_session_state()
