@@ -52,6 +52,9 @@ class RateLimitConfig:
     timeout_seconds: int = 60
     error_threshold_pct: float = 10.0
     request_interval_seconds: float = 4.0  # 15 req/min = 1 req/4s
+    openai_model: str = "gpt-3.5-turbo"
+    max_tokens: int = 500
+    temperature: float = 0.3
 
 # Métriques de traitement
 @dataclass
@@ -223,13 +226,13 @@ class ChunkProcessor:
                 try:
                     # Appel API OpenAI
                     response = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
+                        model=self.config.openai_model,
                         messages=[
                             {"role": "system", "content": "Vous êtes un assistant d'analyse de documents."},
                             {"role": "user", "content": chunk_data['content']}
                         ],
-                        max_tokens=500,
-                        temperature=0.3,
+                        max_tokens=self.config.max_tokens,
+                        temperature=self.config.temperature,
                         timeout=self.config.timeout_seconds
                     )
                     
@@ -456,6 +459,15 @@ def main():
         chunk_size = st.number_input(
             "Taille chunks (mots)", min_value=100, max_value=5000, value=1000
         )
+
+        st.markdown("#### 🤖 OpenAI")
+        openai_model = st.text_input("Modèle", value="gpt-3.5-turbo")
+        max_tokens_setting = st.number_input(
+            "Max tokens", min_value=50, max_value=4000, value=500, step=50
+        )
+        temperature_setting = st.slider(
+            "Température", min_value=0.0, max_value=1.0, value=0.3, step=0.1
+        )
     
     # Interface principale
     tab1, tab2, tab3, tab4 = st.tabs(["📁 Fichiers", "🚀 Analyse", "📊 Monitoring", "📋 Logs"])
@@ -505,6 +517,15 @@ def main():
                 st.metric("Tentatives retry", retry_attempts)
             with col4:
                 st.metric("Seuil erreur", f"{error_threshold}%")
+
+            st.markdown("### 🤖 Paramètres OpenAI")
+            mcol1, mcol2, mcol3 = st.columns(3)
+            with mcol1:
+                st.metric("Modèle", openai_model)
+            with mcol2:
+                st.metric("Max tokens", max_tokens_setting)
+            with mcol3:
+                st.metric("Température", temperature_setting)
             
             # Boutons de contrôle
             col1, col2, col3 = st.columns(3)
@@ -517,7 +538,10 @@ def main():
                         max_concurrent_requests=max_concurrent,
                         retry_attempts=retry_attempts,
                         error_threshold_pct=error_threshold,
-                        request_interval_seconds=60/requests_per_minute
+                        request_interval_seconds=60/requests_per_minute,
+                        openai_model=openai_model,
+                        max_tokens=max_tokens_setting,
+                        temperature=temperature_setting
                     )
                     
                     # Réinitialiser les métriques
