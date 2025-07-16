@@ -2,23 +2,17 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import datetime, timedelta
-import io
+from datetime import datetime
 import time
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
-from typing import List, Dict, Tuple, Optional, Set
-import math
-import shutil
+from typing import List, Dict, Optional, Set
 import hashlib
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue, Empty, PriorityQueue
+
 import signal
 import pickle
-import asyncio
 from threading import Lock, Event, Semaphore
 import sys
 
@@ -208,8 +202,8 @@ class ChunkProcessor:
             return None
         
         retry_count = self.chunk_manager.get_retry_count(chunk_id)
-        
-        for attempt in range(self.config.retry_attempts):
+
+        for attempt in range(retry_count, self.config.retry_attempts):
             if self.shutdown_flag:
                 add_log(f"Arrêt demandé, abandon chunk {chunk_id}", "warning")
                 return None
@@ -264,6 +258,8 @@ class ChunkProcessor:
                 # Erreur 429
                 self.metrics.rate_limit_errors += 1
                 self.metrics.error_details['rate_limit'] = self.metrics.error_details.get('rate_limit', 0) + 1
+
+                self.chunk_manager.mark_failed(chunk_id)
                 
                 backoff_time = self.config.initial_backoff * (self.config.backoff_multiplier ** attempt)
                 add_log(f"Rate limit chunk {chunk_id}, backoff {backoff_time}s", "warning")
@@ -274,14 +270,15 @@ class ChunkProcessor:
             except openai.error.Timeout as e:
                 self.metrics.error_details['timeout'] = self.metrics.error_details.get('timeout', 0) + 1
                 add_log(f"Timeout chunk {chunk_id}, tentative {attempt + 1}", "error")
+                self.chunk_manager.mark_failed(chunk_id)
                 
             except Exception as e:
                 self.metrics.error_details['other'] = self.metrics.error_details.get('other', 0) + 1
                 add_log(f"Erreur chunk {chunk_id}: {str(e)}", "error")
+                self.chunk_manager.mark_failed(chunk_id)
         
         # Échec après toutes les tentatives
         self.metrics.failed_chunks += 1
-        self.chunk_manager.mark_failed(chunk_id)
         add_log(f"Chunk {chunk_id} échoué après {self.config.retry_attempts} tentatives", "error")
         
         return None
